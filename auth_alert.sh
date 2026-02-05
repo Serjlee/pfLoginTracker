@@ -1,12 +1,7 @@
 #!/bin/sh
 
-# Enhanced Alert Script for pfSense Authentication
 # Place this file at: /root/Scripts/gotify_auth_alert.sh
 # Make it executable with: chmod +x /root/Scripts/gotify_auth_alert.sh
-
-# Gotify Configuration - Replace with your server details
-GOTIFY_SERVER="http://your-gotify-server:8070"  # Your Gotify server address
-GOTIFY_TOKEN="YourGotifyApplicationToken"       # Your application token
 
 # Get authentication details from system
 USERNAME="$1"
@@ -46,33 +41,6 @@ Time: $(date)"
         PRIORITY=6
     else
         PRIORITY=5
-    fi
-fi
-
-# 1. Send notification to Gotify
-FULL_URL="$GOTIFY_SERVER/message?token=$GOTIFY_TOKEN"
-logger -t pfsense_auth_alert "Attempting to send to Gotify: $FULL_URL"
-
-RESPONSE=$(curl -X POST \
-  -F "title=$TITLE" \
-  -F "message=$MESSAGE" \
-  -F "priority=$PRIORITY" \
-  --write-out "%{http_code}" \
-  --silent \
-  --output /tmp/gotify_response \
-  --connect-timeout 10 \
-  "$FULL_URL")
-
-# Log the Gotify response
-if [ "$RESPONSE" -eq 200 ]; then
-    logger -t pfsense_auth_alert "Gotify notification sent successfully"
-else
-    logger -t pfsense_auth_alert "Failed to send Gotify notification. HTTP code: $RESPONSE"
-    
-    # Log more details for debugging
-    if [ -f "/tmp/gotify_response" ]; then
-        RESP_CONTENT=$(cat /tmp/gotify_response)
-        logger -t pfsense_auth_alert "Response content: $RESP_CONTENT"
     fi
 fi
 
