@@ -14,10 +14,10 @@ fi
 # Read last check time
 LAST_CHECK=$(stat -f %m "$LAST_CHECK_FILE")
 
-# Capture current time
-CURRENT_RUN_TIME=$(date +%s)
+logger -t "$LOG_TAG" "Starting. LAST_CHECK=$LAST_CHECK"
 
-logger -t "$LOG_TAG" "Starting. LAST_CHECK=$LAST_CHECK CURRENT_RUN_TIME=$CURRENT_RUN_TIME"
+# Temp file to accumulate alerts before sending
+PENDING_ALERTS=$(mktemp)
 
 get_log_timestamp() {
     local line="$1"
@@ -27,18 +27,14 @@ get_log_timestamp() {
     if echo "$date_str" | grep -q "^[0-9]\{4\}-.*T"; then
         # ISO format: strip fractional seconds AND timezone (+HH:MM / Z)
         date_str=$(echo "$line" | awk '{print $1}' | sed 's/[.+Z].*//')
-        logger -t "$LOG_TAG" "  [ISO] date_str='$date_str'"
         epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$date_str" +%s 2>/dev/null)
     else
         # Traditional syslog: "Mon DD HH:MM:SS"
-        logger -t "$LOG_TAG" "  [syslog] date_str='$date_str'"
         epoch=$(date -j -f "%b %e %H:%M:%S" "$date_str" +%s 2>/dev/null)
     fi
 
     if [ -z "$epoch" ]; then
         logger -t "$LOG_TAG" "  [WARN] parse FAILED for date_str='$date_str'"
-    else
-        logger -t "$LOG_TAG" "  [OK] epoch=$epoch"
     fi
 
     echo "$epoch"
@@ -60,10 +56,8 @@ grep -h -E "(Successful login|Accepted keyboard-interactive|Accepted publickey)"
 
         if [ -n "$IP_ADDRESS" ]; then
             IP_ADDRESS=${IP_ADDRESS%.}
-            "$ALERT_SCRIPT" "$USERNAME" "$IP_ADDRESS" "Authentication Success"
+            echo "$USERNAME|$IP_ADDRESS|Authentication Success" >> "$PENDING_ALERTS"
         fi
-    else
-        logger -t "$LOG_TAG" "[SKIP] success: LOG_TIME='$LOG_TIME' LAST_CHECK='$LAST_CHECK' line='$TRUNCATED'"
     fi
 done
 
@@ -82,10 +76,8 @@ grep -h -E "(authentication error|Failed password|webConfigurator.*REJECT)" "$AU
 
         if [ -n "$IP_ADDRESS" ]; then
             IP_ADDRESS=${IP_ADDRESS%.}
-            "$ALERT_SCRIPT" "$USERNAME" "$IP_ADDRESS" "Authentication Failure"
+            echo "$USERNAME|$IP_ADDRESS|Authentication Failure" >> "$PENDING_ALERTS"
         fi
-    else
-        logger -t "$LOG_TAG" "[SKIP] failure: LOG_TIME='$LOG_TIME' LAST_CHECK='$LAST_CHECK' line='$TRUNCATED'"
     fi
 done
 
@@ -97,12 +89,20 @@ grep "sshguard.*Blocking" "$SYSTEM_LOG" 2>/dev/null | while read -r line; do
     if [ -n "$LOG_TIME" ] && [ "$LOG_TIME" -gt "$LAST_CHECK" ]; then
         logger -t "$LOG_TAG" "[PASS] sshguard: '$TRUNCATED'"
         IP_ADDRESS=$(echo "$line" | grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" | head -1)
-        "$ALERT_SCRIPT" "blocked" "$IP_ADDRESS" "SSHGuard Block"
-    else
-        logger -t "$LOG_TAG" "[SKIP] sshguard: LOG_TIME='$LOG_TIME' LAST_CHECK='$LAST_CHECK' line='$TRUNCATED'"
+        echo "blocked|$IP_ADDRESS|SSHGuard Block" >> "$PENDING_ALERTS"
     fi
 done
 
-# Update timestamp file for next run
-touch -t "$(date -r $CURRENT_RUN_TIME +%Y%m%d%H%M.%S)" "$LAST_CHECK_FILE"
-logger -t "$LOG_TAG" "Done. Updated LAST_CHECK_FILE to $CURRENT_RUN_TIME."
+# Mark timestamp before sending — next run won't re-process these
+touch "$LAST_CHECK_FILE"
+
+# Send all accumulated alerts
+ALERT_COUNT=0
+while IFS='|' read -r username ip event; do
+    logger -t "$LOG_TAG" "[SEND] $event user='$username' ip='$ip'"
+    "$ALERT_SCRIPT" "$username" "$ip" "$event"
+    ALERT_COUNT=$((ALERT_COUNT + 1))
+done < "$PENDING_ALERTS"
+
+rm -f "$PENDING_ALERTS"
+logger -t "$LOG_TAG" "Done. Sent $ALERT_COUNT alert(s)."
