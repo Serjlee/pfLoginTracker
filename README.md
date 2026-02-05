@@ -53,7 +53,7 @@ This project provides two shell scripts that work together to:
 
 5. Set up a cron job to run the monitoring script periodically. Add the following to Services > Cron (requires package installation):
    - Command: `/root/Scripts/check_pfsense_login.sh`
-   - Schedule: `* * * * *` (runs every minute)
+   - Schedule: `*/5 * * * *` (runs every 5 minutes)
 
 ## Configuration
 
