@@ -51,9 +51,9 @@ This project provides two shell scripts that work together to:
    chmod +x /root/Scripts/auth_alert.sh
    ```
 
-5. Set up a cron job to run the monitoring script periodically. Add the following to System > Cron:
+5. Set up a cron job to run the monitoring script periodically. Add the following to Services > Cron (requires package installation):
    - Command: `/root/Scripts/check_pfsense_login.sh`
-   - Schedule: `*/5 * * * *` (runs every 5 minutes)
+   - Schedule: `* * * * *` (runs every minute)
 
 ## Configuration
 
